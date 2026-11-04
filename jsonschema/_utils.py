@@ -390,7 +390,17 @@ def find_evaluated_property_keys_by_schema(validator, instance, schema):
                 subschema,
             )
 
-    for keyword in ["allOf", "oneOf", "anyOf"]:
+    # Every allOf subschema is applied to the instance, so the properties
+    # it evaluates count even if the subschema itself fails validation
+    # (e.g. because of a failure nested inside one of its properties).
+    for subschema in schema.get("allOf", []):
+        evaluated_keys += find_evaluated_property_keys_by_schema(
+            validator,
+            instance,
+            subschema,
+        )
+
+    for keyword in ["oneOf", "anyOf"]:
         for subschema in schema.get(keyword, []):
             if not is_valid(validator.descend(instance, subschema)):
                 continue

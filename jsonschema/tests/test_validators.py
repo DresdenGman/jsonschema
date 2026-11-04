@@ -754,6 +754,121 @@ class TestValidationErrorMessages(TestCase):
         message = self.message_for(instance="foo", schema=schema)
         self.assertEqual(message, "'foo' is not of type 'object'")
 
+    def test_unevaluated_properties_with_failing_allOf(self):
+        """
+        Properties evaluated by an allOf subschema count as evaluated even
+        when the subschema fails because of a failure nested inside one of
+        the properties, so the only error is the nested one.
+        """
+        schema = {
+            "allOf": [
+                {
+                    "properties": {
+                        "street_address": {"type": "string"},
+                        "city": {"type": "string"},
+                        "state": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                {"properties": {"type": {"type": "string"}}},
+            ],
+            "type": "object",
+            "unevaluatedProperties": False,
+        }
+        message = self.message_for(
+            instance={
+                "street_address": "21 2nd Street",
+                "city": "New York",
+                "state": {"name": "NY", "cc": "Unexpected field"},
+                "type": "home",
+            },
+            schema=schema,
+        )
+        self.assertEqual(
+            message,
+            "Additional properties are not allowed ('cc' was unexpected)",
+        )
+
+    def test_unevaluated_properties_with_failing_allOf_draft2019(self):
+        """
+        The same as the test above, but for Draft 2019-09, which uses the
+        legacy implementation of unevaluatedProperties.
+        """
+        schema = {
+            "allOf": [
+                {
+                    "properties": {
+                        "street_address": {"type": "string"},
+                        "city": {"type": "string"},
+                        "state": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                {"properties": {"type": {"type": "string"}}},
+            ],
+            "type": "object",
+            "unevaluatedProperties": False,
+        }
+        message = self.message_for(
+            instance={
+                "street_address": "21 2nd Street",
+                "city": "New York",
+                "state": {"name": "NY", "cc": "Unexpected field"},
+                "type": "home",
+            },
+            schema=schema,
+            cls=validators.Draft201909Validator,
+        )
+        self.assertEqual(
+            message,
+            "Additional properties are not allowed ('cc' was unexpected)",
+        )
+
+    def test_unevaluated_properties_still_unevaluated_with_failing_allOf(
+        self,
+    ):
+        """
+        A property that no allOf subschema evaluates is still reported as
+        unevaluated (and by name) when another subschema fails.
+        """
+        schema = {
+            "allOf": [
+                {
+                    "properties": {
+                        "state": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            ],
+            "type": "object",
+            "unevaluatedProperties": False,
+        }
+        validator = validators.Draft202012Validator(schema)
+        errors = list(
+            validator.iter_errors(
+                {"state": {"name": "NY", "cc": "Unexpected field"}, "zip": 1},
+            ),
+        )
+        self.assertEqual(
+            [error.message for error in errors],
+            [
+                "Additional properties are not allowed ('cc' was unexpected)",
+                (
+                    "Unevaluated properties are not allowed "
+                    "('zip' was unexpected)"
+                ),
+            ],
+        )
+
     def test_single_item(self):
         schema = {"prefixItems": [{}], "items": False}
         message = self.message_for(
